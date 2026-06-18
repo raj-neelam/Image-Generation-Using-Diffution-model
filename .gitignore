@@ -1,3 +1,6 @@
+Models/*
+runs/*
+__pycache__
 data/*
 
 !data/image.png
