@@ -1,7 +1,7 @@
 import os
 import torch
 from tqdm import tqdm
-from DDPM_model import DDPM_model
+from Model_architecture.DDPM_unnet_attntion import DDPM_model
 import torchvision
 from torch.utils.tensorboard import SummaryWriter
 from torch.utils.data import DataLoader, Dataset
@@ -18,12 +18,12 @@ class Config:
     hidden_channels = 64
 
     batch_size = 32
-    lr = 1e-3
+    lr = 1e-5
     epochs = 100
 
 config = Config()
 
-writer = SummaryWriter(log_dir="runs/Model_mnist")
+writer = SummaryWriter(log_dir="runs/Model")
 
 # download data if not available
 if not os.path.exists("data/MNIST/raw"):
@@ -37,6 +37,7 @@ class Mydataset(Dataset):
         self.transform = torchvision.transforms.Compose([
             torchvision.transforms.Resize((config.image_size, config.image_size)),
             torchvision.transforms.ToTensor(),
+            torchvision.transforms.Normalize((0.5,), (0.5,))
         ])
     def __len__(self):
         return len(self.data)
@@ -53,6 +54,10 @@ model = DDPM_model(config).to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
 criterion = torch.nn.MSELoss()
 # model.compile(optimizer=optimizer, loss=criterion)
+
+# sd = torch.load("Models/attention_model_73.pt")
+# model.load_state_dict(sd)
+
 global_step = 0
 for epoch in range(config.epochs):
     loader = tqdm(train_loader)
@@ -69,7 +74,8 @@ for epoch in range(config.epochs):
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        writer.add_scalar("Loss", loss.item(), global_step)        
+        if global_step%200==0:
+            writer.add_scalar("Loss", loss.item(), global_step)        
         loader.postfix = f"loss: {loss.item()}"
         # print(loss.item())
         global_step += 1
@@ -78,7 +84,7 @@ for epoch in range(config.epochs):
     with torch.no_grad():
         for digit in range(10):
             img = model.generate(digit)          # (1, 1, 28, 28)
-            img = (img + 1) / 2                  # Tanh → [0,1]
+            img = (img.clamp(-1, 1) + 1) / 2                  # Tanh → [0,1]
             writer.add_image(f"Generated/digit_{digit}", img[0], epoch)
     model.train()
     torch.save(model.state_dict(), f"Models/model_{epoch+1}.pt")
