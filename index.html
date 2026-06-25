@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DDPM · Digit Generator</title>
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/ort.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ── tokens ──────────────────────────────────────────────────────────────── */
+:root { color-scheme: light dark; }
+
+[data-theme="light"], [data-theme="auto"] {
+  --bg:        #f0f0f5;
+  --surface:   #ffffff;
+  --surface2:  #f5f5fa;
+  --border:    #e0dff0;
+  --accent:    #5b4fcf;
+  --accent2:   #8b7cf8;
+  --text:      #16141e;
+  --muted:     #8880a8;
+  --track:     #e4e2f0;
+  --canvas-bg: #0c0c10;
+  --pill-ok:   #22c55e;
+  --pill-err:  #ef4444;
+  --pill-wait: #f59e0b;
+}
+@media (prefers-color-scheme: dark) {
+  [data-theme="auto"] {
+    --bg:        #09090e;
+    --surface:   #111118;
+    --surface2:  #18181f;
+    --border:    #222230;
+    --accent:    #7c6fdf;
+    --accent2:   #a78bfa;
+    --text:      #e8e6f8;
+    --muted:     #6060808;
+    --track:     #222230;
+    --canvas-bg: #060608;
+    --pill-ok:   #22c55e;
+    --pill-err:  #ef4444;
+    --pill-wait: #f59e0b;
+  }
+}
+[data-theme="dark"] {
+  --bg:        #09090e;
+  --surface:   #111118;
+  --surface2:  #18181f;
+  --border:    #222230;
+  --accent:    #7c6fdf;
+  --accent2:   #a78bfa;
+  --text:      #e8e6f8;
+  --muted:     #606080;
+  --track:     #222230;
+  --canvas-bg: #060608;
+  --pill-ok:   #22c55e;
+  --pill-err:  #ef4444;
+  --pill-wait: #f59e0b;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', system-ui, sans-serif;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── topbar ──────────────────────────────────────────────────────────────── */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1.5rem;
+  height: 52px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex-shrink: 0;
+  gap: 1rem;
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: .55rem;
+}
+.brand-title {
+  font-size: .82rem;
+  font-weight: 600;
+  letter-spacing: .15em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+.brand-title span { color: var(--accent2); }
+.brand-sub {
+  font-size: .68rem;
+  color: var(--muted);
+  letter-spacing: .04em;
+}
+
+/* model status pill */
+.status-pill {
+  display: flex;
+  align-items: center;
+  gap: .45rem;
+  padding: .28rem .75rem;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  font-size: .68rem;
+  font-weight: 500;
+  letter-spacing: .05em;
+  color: var(--muted);
+  transition: border-color .3s, color .3s;
+  white-space: nowrap;
+}
+.status-pill .dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--pill-wait);
+  transition: background .3s;
+  flex-shrink: 0;
+}
+.status-pill.ready  { color: var(--pill-ok);   border-color: color-mix(in srgb, var(--pill-ok) 30%, transparent); }
+.status-pill.ready  .dot { background: var(--pill-ok); box-shadow: 0 0 6px var(--pill-ok); }
+.status-pill.error  { color: var(--pill-err);  border-color: color-mix(in srgb, var(--pill-err) 30%, transparent); }
+.status-pill.error  .dot { background: var(--pill-err); }
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+}
+
+/* theme toggle */
+.theme-toggle {
+  display: flex;
+  gap: .2rem;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  padding: .2rem;
+}
+.theme-btn {
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--muted);
+  transition: background .15s, color .15s;
+}
+.theme-btn svg { width: 13px; height: 13px; }
+.theme-btn.active { background: var(--accent); color: #fff; }
+.theme-btn:hover:not(.active) { background: var(--border); color: var(--text); }
+
+/* ── main split ──────────────────────────────────────────────────────────── */
+.main {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ── left: canvas panel ──────────────────────────────────────────────────── */
+.panel-canvas {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  padding: 2rem;
+  background: var(--canvas-bg);
+  border-right: 1px solid var(--border);
+  position: relative;
+  overflow: hidden;
+}
+
+/* subtle grid pattern */
+.panel-canvas::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 32px 32px;
+  opacity: .06;
+  pointer-events: none;
+}
+
+.canvas-frame {
+  position: relative;
+  border-radius: 20px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--accent2) 20%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent2) 8%, transparent),
+    0 24px 64px rgba(0,0,0,.5);
+}
+
+canvas {
+  display: block;
+  width: 560px;
+  height: 560px;
+  image-rendering: pixelated;
+}
+
+.step-badge {
+  position: absolute;
+  bottom: 10px;
+  right: 12px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: .6rem;
+  color: rgba(255,255,255,.35);
+  letter-spacing: .06em;
+  pointer-events: none;
+}
+
+/* canvas label */
+.canvas-label {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .3rem;
+}
+.canvas-digit-display {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 2.5rem;
+  font-weight: 500;
+  color: rgba(255,255,255,.08);
+  line-height: 1;
+  letter-spacing: -.02em;
+  transition: color .4s;
+  user-select: none;
+}
+.canvas-digit-display.active {
+  color: rgba(255,255,255,.18);
+}
+.canvas-status-text {
+  font-size: .68rem;
+  color: rgba(255,255,255,.3);
+  letter-spacing: .08em;
+  font-weight: 500;
+  text-transform: uppercase;
+  min-height: 1em;
+  transition: color .3s;
+}
+.canvas-status-text.busy  { color: #f59e0b; }
+.canvas-status-text.ready { color: #22c55e; }
+.canvas-status-text.error { color: #ef4444; }
+
+/* ── right: controls panel ───────────────────────────────────────────────── */
+.panel-controls {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2rem;
+  padding: 2.5rem 3rem;
+  background: var(--surface);
+  overflow-y: auto;
+}
+
+.section-label {
+  font-size: .62rem;
+  font-weight: 600;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: .85rem;
+}
+
+/* digit grid — 5×2 */
+.digit-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: .5rem;
+}
+
+.digit-btn {
+  height: 56px;
+  border-radius: 10px;
+  border: 1.5px solid var(--border);
+  background: var(--surface2);
+  color: var(--muted);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 1.15rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color .15s, color .15s, background .15s, transform .08s, box-shadow .15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.digit-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, var(--accent2), var(--accent));
+  opacity: 0;
+  transition: opacity .2s;
+}
+
+.digit-btn:hover:not(:disabled) {
+  border-color: var(--accent2);
+  color: var(--accent2);
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface2));
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.digit-btn.active {
+  border-color: transparent;
+  color: #fff;
+  background: var(--accent);
+  box-shadow: 0 4px 20px color-mix(in srgb, var(--accent) 35%, transparent);
+  transform: translateY(-1px);
+}
+
+.digit-btn:disabled {
+  opacity: .3;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* action buttons */
+.actions { display: flex; gap: .6rem; }
+
+.btn {
+  height: 42px;
+  padding: 0 1.4rem;
+  border-radius: 8px;
+  font-size: .78rem;
+  font-weight: 500;
+  font-family: 'Inter', sans-serif;
+  letter-spacing: .04em;
+  cursor: pointer;
+  transition: background .15s, color .15s, border-color .15s, transform .08s, box-shadow .15s;
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  white-space: nowrap;
+  border: 1.5px solid transparent;
+}
+.btn:active:not(:disabled) { transform: scale(.97); }
+.btn:disabled { opacity: .3; cursor: not-allowed; }
+
+.btn svg { width: 14px; height: 14px; flex-shrink: 0; }
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+  flex: 1;
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--accent2);
+  border-color: var(--accent2);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.btn-ghost {
+  background: transparent;
+  color: var(--muted);
+  border-color: var(--border);
+}
+.btn-ghost:hover:not(:disabled) {
+  border-color: var(--accent2);
+  color: var(--accent2);
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+/* progress section */
+.progress-section { display: flex; flex-direction: column; gap: .6rem; }
+
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.progress-label {
+  font-size: .62rem;
+  font-weight: 600;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.progress-step {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: .68rem;
+  color: var(--muted);
+  letter-spacing: .04em;
+  transition: color .3s;
+}
+.progress-step.active { color: var(--accent2); }
+
+.progress-track {
+  width: 100%;
+  height: 4px;
+  background: var(--track);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent), var(--accent2));
+  border-radius: 99px;
+  transition: width .1s ease;
+}
+
+/* show-every control */
+.show-every-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: .2rem;
+}
+.show-every-label {
+  font-size: .62rem;
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.show-every-control {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: .25rem .4rem;
+}
+.show-every-control button {
+  width: 22px; height: 22px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  border-radius: 5px;
+  font-size: .85rem;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .12s, color .12s;
+  flex-shrink: 0;
+}
+.show-every-control button:hover { background: var(--border); color: var(--text); }
+.show-every-control button:disabled { opacity: .25; cursor: not-allowed; }
+.show-every-val {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: .72rem;
+  font-weight: 500;
+  color: var(--text);
+  min-width: 2.2ch;
+  text-align: center;
+  letter-spacing: .02em;
+}
+
+/* ── loading overlay ─────────────────────────────────────────────────────── */
+#loading-overlay {
+  position: fixed; inset: 0;
+  background: var(--bg);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 1.2rem;
+  z-index: 100;
+  transition: opacity .4s;
+}
+#loading-overlay.hidden { opacity: 0; pointer-events: none; }
+
+.spinner {
+  width: 32px; height: 32px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent2);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.load-title {
+  font-size: .72rem;
+  font-weight: 600;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+#load-msg {
+  font-size: .68rem;
+  color: var(--muted);
+  letter-spacing: .05em;
+}
+
+/* ── responsive ──────────────────────────────────────────────────────────── */
+@media (max-width: 700px) {
+  body { overflow: auto; }
+
+  .main {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr;
+    overflow: visible;
+  }
+
+  .panel-canvas {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding: 2rem 1.5rem;
+    gap: 1.2rem;
+  }
+
+  canvas { width: 300px; height: 300px; }
+
+  .panel-controls {
+    padding: 1.75rem 1.5rem;
+    gap: 1.5rem;
+    overflow: visible;
+  }
+
+  .brand-sub { display: none; }
+
+  .digit-btn { height: 50px; }
+
+  .btn { height: 44px; }
+}
+
+@media (max-width: 400px) {
+  .topbar { padding: 0 1rem; }
+  .panel-controls { padding: 1.5rem 1rem; }
+  canvas { width: 260px; height: 260px; }
+}
+</style>
+</head>
+<body>
+
+<!-- loading screen -->
+<div id="loading-overlay">
+  <div class="spinner"></div>
+  <div class="load-title">DDPM</div>
+  <p id="load-msg">Loading model…</p>
+</div>
+
+<!-- topbar -->
+<div class="topbar">
+  <div class="brand">
+    <span class="brand-title">DDPM <span>·</span> Digit</span>
+    <span class="brand-sub">Diffusion · MNIST</span>
+  </div>
+
+  <div class="topbar-right">
+    <!-- model status pill -->
+    <div class="status-pill" id="model-pill">
+      <span class="dot"></span>
+      <span id="pill-text">Loading</span>
+    </div>
+
+    <!-- theme toggle -->
+    <div class="theme-toggle">
+      <button class="theme-btn" id="theme-light" title="Light" onclick="setTheme('light')">
+        <!-- sun icon -->
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+          <circle cx="8" cy="8" r="3"/>
+          <line x1="8" y1="1" x2="8" y2="2.5"/>
+          <line x1="8" y1="13.5" x2="8" y2="15"/>
+          <line x1="1" y1="8" x2="2.5" y2="8"/>
+          <line x1="13.5" y1="8" x2="15" y2="8"/>
+          <line x1="3.1" y1="3.1" x2="4.2" y2="4.2"/>
+          <line x1="11.8" y1="11.8" x2="12.9" y2="12.9"/>
+          <line x1="12.9" y1="3.1" x2="11.8" y2="4.2"/>
+          <line x1="4.2" y1="11.8" x2="3.1" y2="12.9"/>
+        </svg>
+      </button>
+      <button class="theme-btn active" id="theme-auto" title="System" onclick="setTheme('auto')">
+        <!-- monitor icon -->
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="1" y="2" width="14" height="10" rx="1.5"/>
+          <line x1="5" y1="14" x2="11" y2="14"/>
+          <line x1="8" y1="12" x2="8" y2="14"/>
+        </svg>
+      </button>
+      <button class="theme-btn" id="theme-dark" title="Dark" onclick="setTheme('dark')">
+        <!-- moon icon -->
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
+          <path d="M13.5 10A6 6 0 1 1 6 2.5a4.5 4.5 0 0 0 7.5 7.5z"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- main -->
+<div class="main">
+
+  <!-- left: canvas -->
+  <div class="panel-canvas">
+    <div class="canvas-frame">
+      <canvas id="canvas" width="28" height="28"></canvas>
+      <span class="step-badge" id="step-badge">—</span>
+    </div>
+
+    <div class="canvas-label">
+      <div class="canvas-digit-display" id="canvas-digit">—</div>
+      <div class="canvas-status-text" id="canvas-status">Waiting</div>
+    </div>
+  </div>
+
+  <!-- right: controls -->
+  <div class="panel-controls">
+
+    <div>
+      <div class="section-label">Select digit</div>
+      <div class="digit-grid" id="digit-grid"></div>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-primary" id="random-btn" onclick="triggerRandom()">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M2 5h3l2.5 6H11l1-2m0 0 2-2-2-2m0 4H11"/>
+          <path d="M2 11h3"/>
+        </svg>
+        Random
+      </button>
+      <button class="btn btn-ghost" id="stop-btn" onclick="stopGeneration()" disabled>
+        <svg viewBox="0 0 16 16" fill="currentColor">
+          <rect x="4" y="4" width="8" height="8" rx="1"/>
+        </svg>
+        Stop
+      </button>
+    </div>
+
+    <div class="progress-section">
+      <div class="progress-header">
+        <span class="progress-label">Denoising</span>
+        <span class="progress-step" id="progress-step-label">— / 1000</span>
+      </div>
+      <div class="progress-track">
+        <div class="progress-fill" id="progress-fill"></div>
+      </div>
+      <div class="show-every-row">
+        <span class="show-every-label">Update every</span>
+        <div class="show-every-control">
+          <button id="se-dec" onclick="changeShowEvery(-1)" title="Fewer updates">
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="2" y1="5" x2="8" y2="5"/></svg>
+          </button>
+          <span class="show-every-val" id="se-val">5</span>
+          <button id="se-inc" onclick="changeShowEvery(1)" title="More updates">
+            <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><line x1="5" y1="2" x2="5" y2="8"/><line x1="2" y1="5" x2="8" y2="5"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ── theme ──────────────────────────────────────────────────────────────────
+function setTheme(t) {
+  document.documentElement.setAttribute('data-theme', t);
+  localStorage.setItem('ddpm-theme', t);
+  document.querySelectorAll('.theme-btn').forEach(b => {
+    b.classList.toggle('active', b.id === 'theme-' + t);
+  });
+}
+(function () { setTheme(localStorage.getItem('ddpm-theme') || 'Dark'); })();
+
+// ── config ─────────────────────────────────────────────────────────────────
+const T          = 1000;
+const IMG_SIZE   = 28;
+const SHOW_EVERY = 5;
+
+// ── state ──────────────────────────────────────────────────────────────────
+let session     = null;
+let schedule    = null;
+let isRunning   = false;
+let stopFlag    = false;
+let activeDigit = null;
+
+// ── DOM ────────────────────────────────────────────────────────────────────
+const canvas          = document.getElementById('canvas');
+const ctx             = canvas.getContext('2d');
+const stepBadge       = document.getElementById('step-badge');
+const progressFill    = document.getElementById('progress-fill');
+const progressStep    = document.getElementById('progress-step-label');
+const loadOverlay     = document.getElementById('loading-overlay');
+const loadMsg         = document.getElementById('load-msg');
+const randomBtn       = document.getElementById('random-btn');
+const stopBtn         = document.getElementById('stop-btn');
+const modelPill       = document.getElementById('model-pill');
+const pillText        = document.getElementById('pill-text');
+const canvasDigitEl   = document.getElementById('canvas-digit');
+const canvasStatusEl  = document.getElementById('canvas-status');
+
+// ── digit buttons ──────────────────────────────────────────────────────────
+const digitGrid = document.getElementById('digit-grid');
+for (let d = 0; d < 10; d++) {
+  const btn = document.createElement('button');
+  btn.className     = 'digit-btn';
+  btn.textContent   = d;
+  btn.dataset.digit = d;
+  btn.addEventListener('click', () => startGeneration(d));
+  digitGrid.appendChild(btn);
+}
+
+function triggerRandom() {
+  startGeneration(Math.floor(Math.random() * 10));
+}
+function stopGeneration() {
+  if (isRunning) stopFlag = true;
+}
+
+// ── pill helpers ───────────────────────────────────────────────────────────
+function setPill(state, text) {
+  modelPill.className = 'status-pill ' + (state || '');
+  pillText.textContent = text;
+}
+
+// ── canvas status helpers ──────────────────────────────────────────────────
+function setCanvasStatus(text, cls) {
+  canvasStatusEl.textContent = text;
+  canvasStatusEl.className   = 'canvas-status-text ' + (cls || '');
+}
+
+// ── init ───────────────────────────────────────────────────────────────────
+async function init() {
+  try {
+    loadMsg.textContent = 'Loading noise schedule…';
+    const schedResp = await fetch('noise_schedule.json');
+    if (!schedResp.ok) throw new Error('noise_schedule.json not found — run onxx_converter.py first.');
+    const raw = await schedResp.json();
+    schedule = {
+      betas:          new Float32Array(raw.betas),
+      alphas:         new Float32Array(raw.alphas),
+      alphas_cumprod: new Float32Array(raw.alphas_cumprod),
+    };
+
+    loadMsg.textContent = 'Loading ONNX model…';
+    ort.env.wasm.numThreads = 1;
+
+    session = await ort.InferenceSession.create('ddpm_mnist.onnx', {
+      executionProviders: ['wasm'],
+    });
+
+    loadOverlay.classList.add('hidden');
+    setPill('ready', 'Model ready');
+    setCanvasStatus('Pick a digit', '');
+
+    setTimeout(() => startGeneration(Math.floor(Math.random() * 10)), 300);
+
+  } catch (err) {
+    loadOverlay.classList.add('hidden');
+    setPill('error', 'Model failed');
+    setCanvasStatus('Error: ' + err.message, 'error');
+    console.error(err);
+  }
+}
+
+// ── generation ─────────────────────────────────────────────────────────────
+async function startGeneration(digit) {
+  if (isRunning) {
+    stopFlag = true;
+    await sleep(60);
+  }
+
+  isRunning   = true;
+  stopFlag    = false;
+  activeDigit = digit;
+
+  setAllButtons(true);
+  setActiveDigit(digit);
+  stopBtn.disabled = false;
+
+  canvasDigitEl.textContent = digit;
+  canvasDigitEl.classList.add('active');
+  setCanvasStatus('Generating…', 'busy');
+  updateProgress(0);
+
+  let x = randn(IMG_SIZE * IMG_SIZE);
+
+  for (let tIdx = T - 1; tIdx >= 0; tIdx--) {
+    if (stopFlag) break;
+
+    let tTensor, lTensor;
+    try {
+      tTensor = new ort.Tensor('int64', BigInt64Array.from([BigInt(tIdx)]),  [1]);
+      lTensor = new ort.Tensor('int64', BigInt64Array.from([BigInt(digit)]), [1]);
+    } catch(_) {
+      tTensor = new ort.Tensor('int32', Int32Array.from([tIdx]),  [1]);
+      lTensor = new ort.Tensor('int32', Int32Array.from([digit]), [1]);
+    }
+
+    const xTensor = new ort.Tensor('float32', x.slice(), [1, 1, IMG_SIZE, IMG_SIZE]);
+
+    let result;
+    try {
+      result = await session.run({ x: xTensor, t: tTensor, label: lTensor });
+    } catch (e) {
+      const t32 = new ort.Tensor('int32', Int32Array.from([tIdx]),  [1]);
+      const l32 = new ort.Tensor('int32', Int32Array.from([digit]), [1]);
+      result = await session.run({ x: xTensor, t: t32, label: l32 });
+    }
+
+    const predNoise  = result['noise_pred'].data;
+    const beta_t     = schedule.betas[tIdx];
+    const alpha_t    = schedule.alphas[tIdx];
+    const alpha_bar  = schedule.alphas_cumprod[tIdx];
+    const inv_sqrt_a = 1 / Math.sqrt(alpha_t);
+    const coeff      = beta_t / Math.sqrt(1 - alpha_bar);
+
+    const xNext = new Float32Array(x.length);
+    for (let i = 0; i < x.length; i++) {
+      xNext[i] = inv_sqrt_a * (x[i] - coeff * predNoise[i]);
+    }
+    if (tIdx > 0) {
+      const z     = randn(x.length);
+      const sigma = Math.sqrt(beta_t);
+      for (let i = 0; i < xNext.length; i++) xNext[i] += sigma * z[i];
+    }
+    x = xNext;
+
+    const step = T - tIdx;
+    if (step % SHOW_EVERY === 0 || tIdx === 0) {
+      renderImage(x);
+      updateProgress(step);
+      stepBadge.textContent = `${step} / ${T}`;
+      await sleep(0);
+    }
+  }
+
+  renderImage(x);
+  updateProgress(T);
+
+  if (stopFlag) {
+    stepBadge.textContent = 'stopped';
+    setCanvasStatus('Stopped', '');
+  } else {
+    stepBadge.textContent = 'done';
+    setCanvasStatus(`Done`, 'ready');
+  }
+
+  setAllButtons(false);
+  stopBtn.disabled = true;
+  isRunning = false;
+}
+
+// ── helpers ────────────────────────────────────────────────────────────────
+function randn(n) {
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i += 2) {
+    const u1 = Math.random() || 1e-10;
+    const u2 = Math.random() || 1e-10;
+    const mag = Math.sqrt(-2 * Math.log(u1));
+    out[i]     = mag * Math.cos(2 * Math.PI * u2);
+    if (i + 1 < n) out[i+1] = mag * Math.sin(2 * Math.PI * u2);
+  }
+  return out;
+}
+
+function renderImage(data) {
+  const imgData = ctx.createImageData(IMG_SIZE, IMG_SIZE);
+  for (let i = 0; i < IMG_SIZE * IMG_SIZE; i++) {
+    const v  = Math.max(-1, Math.min(1, data[i]));
+    const px = Math.round((v + 1) / 2 * 255);
+    imgData.data[i*4]   = px;
+    imgData.data[i*4+1] = px;
+    imgData.data[i*4+2] = px;
+    imgData.data[i*4+3] = 255;
+  }
+  ctx.putImageData(imgData, 0, 0);
+}
+
+function updateProgress(step) {
+  const pct = Math.round((step / T) * 100);
+  progressFill.style.width = pct + '%';
+  progressStep.textContent = `${step} / ${T}`;
+  progressStep.classList.toggle('active', step > 0 && step < T);
+}
+
+function setAllButtons(disabled) {
+  document.querySelectorAll('.digit-btn').forEach(b => b.disabled = disabled);
+  randomBtn.disabled = disabled;
+}
+
+function setActiveDigit(d) {
+  document.querySelectorAll('.digit-btn').forEach(b => {
+    b.classList.toggle('active', +b.dataset.digit === d);
+  });
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+init();
+</script>
+</body>
+</html>

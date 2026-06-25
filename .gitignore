@@ -1,7 +1,12 @@
 Models/*
 runs/*
 __pycache__
+Model_architecture/__pycache__
 data/*
 
-!data/image.png
-!data/naruto_sasuke.jpg
+!data/3.png
+!data/3_output.gif
+!data/5_output.gif
+!data/architecture.png
+!data/grid.png
+!Models/ddpm_mnist.onnx
