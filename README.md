@@ -7,12 +7,11 @@ An interactive, browser-based implementation of a **Class-Conditional Denoising 
 
 ---
 
-### 🚀 **[Try the Interactive Web App Now](./index.html)**
-*(Note: To run the web app, please host it using a local server due to browser CORS policies. See [Running the Web UI](#3-running-the-web-ui) below).*
+### **[Try the Interactive Web App Now](https://raj-neelam.github.io/Image-Generation-Using-Diffution-model/)**
 
 ---
 
-## 🌪️ Denoising Diffusion in Action
+##  Denoising Diffusion in Action
 
 Denoising Diffusion Probabilistic Models (DDPM) work by first adding noise to an image step-by-step (Forward Process) until it becomes pure white noise. The neural network is trained to reverse this process, predicting and removing the noise at each step to reconstruct the target image (Reverse Process).
 
@@ -24,7 +23,7 @@ Below are animations showing the step-by-step denoising process (from $t = 1000$
 
 ---
 
-## 📐 Model Architecture
+##  Model Architecture
 
 The neural network uses a **U-Net architecture with Self-Attention** at the bottleneck, conditioned on both the diffusion timestep $t$ and the target class label (digit 0-9).
 
@@ -39,7 +38,7 @@ The neural network uses a **U-Net architecture with Self-Attention** at the bott
 
 ---
 
-## 🔢 Generated Digits (10x10 Grid)
+##  Generated Digits (10x10 Grid)
 
 Below is a grid of 100 generated digits ($10 \times 10$, with 10 samples per digit class from 0 to 9), demonstrating the model's ability to generate distinct, high-quality digits conditioned on user input:
 
@@ -68,7 +67,7 @@ Here is a guide to what each file in this repository is responsible for:
 
 ---
 
-## 🛠️ How to Use
+## How to Use
 
 ### 1. Training the Model (PyTorch)
 If you want to train the model from scratch on the MNIST dataset:
@@ -89,21 +88,3 @@ To prepare the trained model for the browser:
    ```
 This generates `ddpm_mnist.onnx` and `noise_schedule.json` in the root folder.
 
-### 3. Running the Web UI
-Since the web UI uses `fetch()` to load the ONNX model and the noise schedule JSON, opening `index.html` directly as a local file (`file://`) will trigger **CORS errors** in most modern browsers.
-
-To run it, start a simple HTTP server in the repository root:
-
-#### Option A: Using Python (Pre-installed)
-```bash
-python -m http.server 8000
-```
-Then visit: `http://localhost:8000`
-
-#### Option B: Using Node.js / npx
-```bash
-npx serve .
-```
-Then visit: `http://localhost:3000` (or the port specified).
-
-Once loaded, you can select any digit from 0 to 9, click **Random**, or adjust the display update speed to see the diffusion process run in real-time right inside your browser!
