@@ -17,9 +17,13 @@ Denoising Diffusion Probabilistic Models (DDPM) work by first adding noise to an
 
 Below are animations showing the step-by-step denoising process (from $t = 1000$ down to $t = 0$) for generating digits **3** and **5**:
 
+| Generating Male Image | Generating Female Image |
+| :---: | :---: |
+| <img src="./data/Male.gif" alt="Generating Male" width="400" height="400"> | <img src="./data/Female.gif" alt="Generating Female" width="400" height="400"> |
+
 | Generating Digit `3` | Generating Digit `5` |
 | :---: | :---: |
-| ![Generating 3](./data/3_output.gif) | ![Generating 5](./data/5_output.gif) |
+| <img src="./data/3_output.gif" alt="Generating 3" width="400" height="400"> | <img src="./data/5_output.gif" alt="Generating 5" width="400" height="400"> |
 
 ---
 

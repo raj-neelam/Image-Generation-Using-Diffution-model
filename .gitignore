@@ -9,6 +9,8 @@ data/*
 !data/5_output.gif
 !data/architecture.png
 !data/grid.png
+!data/Male.gif
+!data/Female.gif
 
 !Models/ddpm_mnist.onnx
 !Models/ddpm_face.onnx
