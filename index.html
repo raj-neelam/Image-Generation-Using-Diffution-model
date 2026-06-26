@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>DDPM · Digit Generator</title>
+<title>DDPM · Generator</title>
 <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/ort.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -35,7 +35,7 @@
     --accent:    #7c6fdf;
     --accent2:   #a78bfa;
     --text:      #e8e6f8;
-    --muted:     #6060808;
+    --muted:     #606080;
     --track:     #222230;
     --canvas-bg: #060608;
     --pill-ok:   #22c55e;
@@ -88,6 +88,7 @@ body {
   display: flex;
   align-items: baseline;
   gap: .55rem;
+  flex-shrink: 0;
 }
 .brand-title {
   font-size: .82rem;
@@ -102,6 +103,47 @@ body {
   color: var(--muted);
   letter-spacing: .04em;
 }
+
+/* ── model switcher ──────────────────────────────────────────────────────── */
+.model-switcher {
+  display: flex;
+  gap: .25rem;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  padding: .2rem;
+  flex-shrink: 0;
+}
+
+.mode-btn {
+  height: 28px;
+  padding: 0 .85rem;
+  border-radius: 99px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-family: 'Inter', sans-serif;
+  font-size: .68rem;
+  font-weight: 500;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background .15s, color .15s;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+}
+.mode-btn svg { width: 11px; height: 11px; flex-shrink: 0; }
+.mode-btn:hover:not(.active):not(:disabled) {
+  background: var(--border);
+  color: var(--text);
+}
+.mode-btn.active {
+  background: var(--accent);
+  color: #fff;
+}
+.mode-btn:disabled { opacity: .35; cursor: not-allowed; }
 
 /* model status pill */
 .status-pill {
@@ -183,7 +225,6 @@ body {
   overflow: hidden;
 }
 
-/* subtle grid pattern */
 .panel-canvas::before {
   content: '';
   position: absolute;
@@ -204,14 +245,19 @@ body {
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--accent2) 8%, transparent),
     0 24px 64px rgba(0,0,0,.5);
+  /* transition size smoothly when model switches */
+  transition: width .3s ease, height .3s ease;
 }
 
 canvas {
   display: block;
-  width: 560px;
-  height: 560px;
+  /* size set dynamically by JS */
   image-rendering: pixelated;
 }
+
+/* face canvas is bigger; pixel canvas stays 560×560 */
+canvas.face-size  { width: 560px; height: 560px; }
+canvas.digit-size { width: 560px; height: 560px; }
 
 .step-badge {
   position: absolute;
@@ -224,7 +270,6 @@ canvas {
   pointer-events: none;
 }
 
-/* canvas label */
 .canvas-label {
   display: flex;
   flex-direction: column;
@@ -277,7 +322,10 @@ canvas {
   margin-bottom: .85rem;
 }
 
-/* digit grid — 5×2 */
+/* ── digit controls (hidden in face mode) ───────────────────────────────── */
+.digit-section { display: block; }
+.digit-section.hidden { display: none; }
+
 .digit-grid {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
@@ -301,7 +349,6 @@ canvas {
   position: relative;
   overflow: hidden;
 }
-
 .digit-btn::after {
   content: '';
   position: absolute;
@@ -310,7 +357,6 @@ canvas {
   opacity: 0;
   transition: opacity .2s;
 }
-
 .digit-btn:hover:not(:disabled) {
   border-color: var(--accent2);
   color: var(--accent2);
@@ -318,7 +364,6 @@ canvas {
   transform: translateY(-1px);
   box-shadow: 0 4px 16px color-mix(in srgb, var(--accent) 18%, transparent);
 }
-
 .digit-btn.active {
   border-color: transparent;
   color: #fff;
@@ -326,12 +371,45 @@ canvas {
   box-shadow: 0 4px 20px color-mix(in srgb, var(--accent) 35%, transparent);
   transform: translateY(-1px);
 }
-
 .digit-btn:disabled {
   opacity: .3;
   cursor: not-allowed;
   transform: none;
   box-shadow: none;
+}
+
+/* ── face info card (hidden in digit mode) ──────────────────────────────── */
+.face-info { display: block; }
+.face-info.hidden { display: none; }
+
+.info-card {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 1rem 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+}
+.info-card-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+.info-card-key {
+  font-size: .62rem;
+  font-weight: 600;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.info-card-val {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: .72rem;
+  color: var(--accent2);
+  text-align: right;
 }
 
 /* action buttons */
@@ -355,7 +433,6 @@ canvas {
 }
 .btn:active:not(:disabled) { transform: scale(.97); }
 .btn:disabled { opacity: .3; cursor: not-allowed; }
-
 .btn svg { width: 14px; height: 14px; flex-shrink: 0; }
 
 .btn-primary {
@@ -369,7 +446,6 @@ canvas {
   border-color: var(--accent2);
   box-shadow: 0 4px 16px color-mix(in srgb, var(--accent) 30%, transparent);
 }
-
 .btn-ghost {
   background: transparent;
   color: var(--muted);
@@ -450,7 +526,6 @@ canvas {
   color: var(--muted);
   cursor: pointer;
   border-radius: 5px;
-  font-size: .85rem;
   display: flex; align-items: center; justify-content: center;
   transition: background .12s, color .12s;
   flex-shrink: 0;
@@ -504,39 +579,43 @@ canvas {
 /* ── responsive ──────────────────────────────────────────────────────────── */
 @media (max-width: 700px) {
   body { overflow: auto; }
-
   .main {
     grid-template-columns: 1fr;
     grid-template-rows: auto 1fr;
     overflow: visible;
   }
-
   .panel-canvas {
     border-right: none;
     border-bottom: 1px solid var(--border);
     padding: 2rem 1.5rem;
     gap: 1.2rem;
   }
-
-  canvas { width: 300px; height: 300px; }
-
+  canvas { width: 300px !important; height: 300px !important; }
   .panel-controls {
     padding: 1.75rem 1.5rem;
     gap: 1.5rem;
     overflow: visible;
   }
-
   .brand-sub { display: none; }
-
   .digit-btn { height: 50px; }
-
   .btn { height: 44px; }
+  .model-switcher { display: none; }   /* move to controls on mobile */
+  .mobile-switcher { display: flex !important; }
 }
-
 @media (max-width: 400px) {
   .topbar { padding: 0 1rem; }
   .panel-controls { padding: 1.5rem 1rem; }
-  canvas { width: 260px; height: 260px; }
+}
+
+/* mobile switcher (shown only on small screens) */
+.mobile-switcher {
+  display: none;
+  gap: .25rem;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  padding: .2rem;
+  align-self: flex-start;
 }
 </style>
 </head>
@@ -552,21 +631,40 @@ canvas {
 <!-- topbar -->
 <div class="topbar">
   <div class="brand">
-    <span class="brand-title">DDPM <span>·</span> Digit</span>
-    <span class="brand-sub">Diffusion · MNIST</span>
+    <span class="brand-title" id="brand-title">DDPM <span>·</span> Face</span>
+    <span class="brand-sub" id="brand-sub">Diffusion · RGB 128×128</span>
+  </div>
+
+  <!-- model switcher (center) -->
+  <div class="model-switcher" id="topbar-switcher">
+    <button class="mode-btn active" id="mode-face" onclick="switchMode('face')" title="Face generator (default)">
+      <!-- portrait icon -->
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="8" cy="6" r="2.5"/>
+        <path d="M3 14c0-2.8 2.2-5 5-5s5 2.2 5 5"/>
+      </svg>
+      Face
+    </button>
+    <button class="mode-btn" id="mode-digit" onclick="switchMode('digit')" title="Digit generator (MNIST)">
+      <!-- grid icon -->
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="2" y="2" width="5" height="5" rx="1"/>
+        <rect x="9" y="2" width="5" height="5" rx="1"/>
+        <rect x="2" y="9" width="5" height="5" rx="1"/>
+        <rect x="9" y="9" width="5" height="5" rx="1"/>
+      </svg>
+      Digit
+    </button>
   </div>
 
   <div class="topbar-right">
-    <!-- model status pill -->
     <div class="status-pill" id="model-pill">
       <span class="dot"></span>
       <span id="pill-text">Loading</span>
     </div>
 
-    <!-- theme toggle -->
     <div class="theme-toggle">
       <button class="theme-btn" id="theme-light" title="Light" onclick="setTheme('light')">
-        <!-- sun icon -->
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
           <circle cx="8" cy="8" r="3"/>
           <line x1="8" y1="1" x2="8" y2="2.5"/>
@@ -580,7 +678,6 @@ canvas {
         </svg>
       </button>
       <button class="theme-btn active" id="theme-auto" title="System" onclick="setTheme('auto')">
-        <!-- monitor icon -->
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
           <rect x="1" y="2" width="14" height="10" rx="1.5"/>
           <line x1="5" y1="14" x2="11" y2="14"/>
@@ -588,7 +685,6 @@ canvas {
         </svg>
       </button>
       <button class="theme-btn" id="theme-dark" title="Dark" onclick="setTheme('dark')">
-        <!-- moon icon -->
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
           <path d="M13.5 10A6 6 0 1 1 6 2.5a4.5 4.5 0 0 0 7.5 7.5z"/>
         </svg>
@@ -603,7 +699,7 @@ canvas {
   <!-- left: canvas -->
   <div class="panel-canvas">
     <div class="canvas-frame">
-      <canvas id="canvas" width="28" height="28"></canvas>
+      <canvas id="canvas" width="128" height="128" class="face-size"></canvas>
       <span class="step-badge" id="step-badge">—</span>
     </div>
 
@@ -616,18 +712,57 @@ canvas {
   <!-- right: controls -->
   <div class="panel-controls">
 
-    <div>
+    <!-- mobile switcher (only visible on small screens) -->
+    <div class="mobile-switcher" id="mobile-switcher">
+      <button class="mode-btn active" id="mode-face-m" onclick="switchMode('face')">
+        Face
+      </button>
+      <button class="mode-btn" id="mode-digit-m" onclick="switchMode('digit')">
+        Digit
+      </button>
+    </div>
+
+    <!-- digit controls (visible only in digit mode) -->
+    <div class="digit-section hidden" id="digit-section">
       <div class="section-label">Select digit</div>
       <div class="digit-grid" id="digit-grid"></div>
     </div>
 
+    <!-- face info (visible only in face mode) -->
+    <div class="face-info" id="face-info">
+      <div class="section-label">Model info</div>
+      <div class="info-card">
+        <div class="info-card-row">
+          <span class="info-card-key">Architecture</span>
+          <span class="info-card-val">UNet + SelfAttn</span>
+        </div>
+        <div class="info-card-row">
+          <span class="info-card-key">Resolution</span>
+          <span class="info-card-val">128 × 128 RGB</span>
+        </div>
+        <div class="info-card-row">
+          <span class="info-card-key">Timesteps</span>
+          <span class="info-card-val">T = 1000</span>
+        </div>
+        <div class="info-card-row">
+          <span class="info-card-key">Dataset</span>
+          <span class="info-card-val">AI-Generated Faces</span>
+        </div>
+        <div class="info-card-row">
+          <span class="info-card-key">Schedule</span>
+          <span class="info-card-val">Linear β (1e-4 → 0.02)</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- generate button -->
     <div class="actions">
-      <button class="btn btn-primary" id="random-btn" onclick="triggerRandom()">
+      <button class="btn btn-primary" id="random-btn" onclick="triggerGenerate()">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
           <path d="M2 5h3l2.5 6H11l1-2m0 0 2-2-2-2m0 4H11"/>
           <path d="M2 11h3"/>
         </svg>
-        Random
+        <span id="random-btn-label">Generate Face</span>
       </button>
       <button class="btn btn-ghost" id="stop-btn" onclick="stopGeneration()" disabled>
         <svg viewBox="0 0 16 16" fill="currentColor">
@@ -637,6 +772,7 @@ canvas {
       </button>
     </div>
 
+    <!-- progress -->
     <div class="progress-section">
       <div class="progress-header">
         <span class="progress-label">Denoising</span>
@@ -663,7 +799,9 @@ canvas {
 </div>
 
 <script>
-// ── theme ──────────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+//  theme
+// ═══════════════════════════════════════════════════════════════════════════
 function setTheme(t) {
   document.documentElement.setAttribute('data-theme', t);
   localStorage.setItem('ddpm-theme', t);
@@ -673,19 +811,53 @@ function setTheme(t) {
 }
 (function () { setTheme(localStorage.getItem('ddpm-theme') || 'dark'); })();
 
-// ── config ─────────────────────────────────────────────────────────────────
-const T          = 1000;
-const IMG_SIZE   = 28;
-const SHOW_EVERY = 5;
+// ═══════════════════════════════════════════════════════════════════════════
+//  model configs
+// ═══════════════════════════════════════════════════════════════════════════
+const MODELS = {
+  face: {
+    onnxFile:     'Models/ddpm_face.onnx',
+    scheduleFile: 'Models/face_noise_schedule.json',
+    T:            1000,
+    imgW:         128,
+    imgH:         128,
+    channels:     3,
+    hasLabel:     false,
+    label:        'Face',
+    brandTitle:   'DDPM <span>·</span> Face',
+    brandSub:     'Diffusion · RGB 128×128',
+    btnLabel:     'Generate Face',
+    canvasClass:  'face-size',
+  },
+  digit: {
+    onnxFile:     'Models/ddpm_mnist.onnx',
+    scheduleFile: 'Models/noise_schedule.json',
+    T:            1000,
+    imgW:         28,
+    imgH:         28,
+    channels:     1,          // grayscale
+    hasLabel:     true,
+    label:        'Digit',
+    brandTitle:   'DDPM <span>·</span> Digit',
+    brandSub:     'Diffusion · MNIST 28×28',
+    btnLabel:     'Random Digit',
+    canvasClass:  'digit-size',
+  },
+};
 
-// ── state ──────────────────────────────────────────────────────────────────
-let session     = null;
-let schedule    = null;
+// ═══════════════════════════════════════════════════════════════════════════
+//  state
+// ═══════════════════════════════════════════════════════════════════════════
+let currentMode = 'face';
+let sessions    = {};        // keyed by mode, cached after first load
+let schedules   = {};
 let isRunning   = false;
 let stopFlag    = false;
-let activeDigit = null;
+let showEvery   = 5;
 
-// ── DOM ────────────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+//  DOM refs
+// ═══════════════════════════════════════════════════════════════════════════
 const canvas          = document.getElementById('canvas');
 const ctx             = canvas.getContext('2d');
 const stepBadge       = document.getElementById('step-badge');
@@ -694,13 +866,21 @@ const progressStep    = document.getElementById('progress-step-label');
 const loadOverlay     = document.getElementById('loading-overlay');
 const loadMsg         = document.getElementById('load-msg');
 const randomBtn       = document.getElementById('random-btn');
+const randomBtnLabel  = document.getElementById('random-btn-label');
 const stopBtn         = document.getElementById('stop-btn');
 const modelPill       = document.getElementById('model-pill');
 const pillText        = document.getElementById('pill-text');
 const canvasDigitEl   = document.getElementById('canvas-digit');
 const canvasStatusEl  = document.getElementById('canvas-status');
+const digitSection    = document.getElementById('digit-section');
+const faceInfo        = document.getElementById('face-info');
+const brandTitle      = document.getElementById('brand-title');
+const brandSub        = document.getElementById('brand-sub');
+const seVal           = document.getElementById('se-val');
 
-// ── digit buttons ──────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+//  digit buttons
+// ═══════════════════════════════════════════════════════════════════════════
 const digitGrid = document.getElementById('digit-grid');
 for (let d = 0; d < 10; d++) {
   const btn = document.createElement('button');
@@ -711,140 +891,276 @@ for (let d = 0; d < 10; d++) {
   digitGrid.appendChild(btn);
 }
 
-function triggerRandom() {
-  startGeneration(Math.floor(Math.random() * 10));
-}
-function stopGeneration() {
-  if (isRunning) stopFlag = true;
+// ═══════════════════════════════════════════════════════════════════════════
+//  show-every
+// ═══════════════════════════════════════════════════════════════════════════
+const SE_MIN = 1, SE_MAX = 50;
+function changeShowEvery(delta) {
+  showEvery = Math.max(SE_MIN, Math.min(SE_MAX, showEvery + delta));
+  seVal.textContent = showEvery;
+  document.getElementById('se-dec').disabled = showEvery <= SE_MIN;
+  document.getElementById('se-inc').disabled = showEvery >= SE_MAX;
 }
 
-// ── pill helpers ───────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+//  pill / status helpers
+// ═══════════════════════════════════════════════════════════════════════════
 function setPill(state, text) {
-  modelPill.className = 'status-pill ' + (state || '');
+  modelPill.className  = 'status-pill ' + (state || '');
   pillText.textContent = text;
 }
-
-// ── canvas status helpers ──────────────────────────────────────────────────
 function setCanvasStatus(text, cls) {
   canvasStatusEl.textContent = text;
   canvasStatusEl.className   = 'canvas-status-text ' + (cls || '');
 }
 
-// ── init ───────────────────────────────────────────────────────────────────
-async function init() {
+// ═══════════════════════════════════════════════════════════════════════════
+//  mode switcher
+// ═══════════════════════════════════════════════════════════════════════════
+async function switchMode(mode) {
+  if (mode === currentMode) return;
+  if (isRunning) {
+    stopFlag = true;
+    await sleep(80);
+  }
+
+  currentMode = mode;
+  const cfg   = MODELS[mode];
+
+  // update topbar buttons (desktop + mobile)
+  ['face','digit'].forEach(m => {
+    const active = m === mode;
+    const btn  = document.getElementById('mode-' + m);
+    const btnM = document.getElementById('mode-' + m + '-m');
+    if (btn)  btn.classList.toggle('active', active);
+    if (btnM) btnM.classList.toggle('active', active);
+  });
+
+  // update brand text
+  brandTitle.innerHTML = cfg.brandTitle;
+  brandSub.textContent = cfg.brandSub;
+
+  // update generate button label
+  randomBtnLabel.textContent = cfg.btnLabel;
+
+  // show/hide digit vs face sections
+  if (mode === 'digit') {
+    digitSection.classList.remove('hidden');
+    faceInfo.classList.add('hidden');
+    canvasDigitEl.textContent = '—';
+  } else {
+    digitSection.classList.add('hidden');
+    faceInfo.classList.remove('hidden');
+    canvasDigitEl.textContent = '—';
+    canvasDigitEl.classList.remove('active');
+  }
+
+  // resize canvas (native resolution, CSS does the display scaling)
+  canvas.width  = cfg.imgW;
+  canvas.height = cfg.imgH;
+  canvas.className = cfg.canvasClass;
+
+  // clear canvas
+  ctx.clearRect(0, 0, cfg.imgW, cfg.imgH);
+  stepBadge.textContent = '—';
+  updateProgress(0);
+  setCanvasStatus('Waiting', '');
+
+  // load this model if not yet cached
+  await loadModel(mode);
+
+  // auto-start once loaded
+  if (mode === 'face') {
+    setTimeout(() => startGeneration(), 300);
+  } else {
+    setTimeout(() => startGeneration(Math.floor(Math.random() * 10)), 300);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  model loader (with caching)
+// ═══════════════════════════════════════════════════════════════════════════
+async function loadModel(mode) {
+  if (sessions[mode]) return;   // already loaded
+
+  const cfg = MODELS[mode];
+  setPill('', 'Loading ' + cfg.label + '…');
+  setCanvasStatus('Loading model…', 'busy');
+
   try {
-    loadMsg.textContent = 'Loading noise schedule…';
-    const schedResp = await fetch('noise_schedule.json');
-    if (!schedResp.ok) throw new Error('noise_schedule.json not found — run onxx_converter.py first.');
+    // noise schedule
+    const schedResp = await fetch(cfg.scheduleFile);
+    if (!schedResp.ok) throw new Error(cfg.scheduleFile + ' not found');
     const raw = await schedResp.json();
-    schedule = {
+    schedules[mode] = {
       betas:          new Float32Array(raw.betas),
       alphas:         new Float32Array(raw.alphas),
       alphas_cumprod: new Float32Array(raw.alphas_cumprod),
     };
 
-    loadMsg.textContent = 'Loading ONNX model…';
+    // ONNX session
     ort.env.wasm.numThreads = 1;
-
-    session = await ort.InferenceSession.create('ddpm_mnist.onnx', {
+    sessions[mode] = await ort.InferenceSession.create(cfg.onnxFile, {
       executionProviders: ['wasm'],
     });
 
+    setPill('ready', cfg.label + ' ready');
+    setCanvasStatus(mode === 'face' ? 'Ready' : 'Pick a digit', '');
+  } catch (err) {
+    setPill('error', cfg.label + ' failed');
+    setCanvasStatus('Error: ' + err.message, 'error');
+    console.error(err);
+    throw err;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  init — load face model on startup
+// ═══════════════════════════════════════════════════════════════════════════
+async function init() {
+  try {
+    loadMsg.textContent = 'Loading face model…';
+    await loadModel('face');
     loadOverlay.classList.add('hidden');
-    setPill('ready', 'Model ready');
-    setCanvasStatus('Pick a digit', '');
-
-    setTimeout(() => startGeneration(Math.floor(Math.random() * 10)), 300);
-
+    // auto-generate a face immediately
+    setTimeout(() => startGeneration(), 300);
   } catch (err) {
     loadOverlay.classList.add('hidden');
-    setPill('error', 'Model failed');
-    setCanvasStatus('Error: ' + err.message, 'error');
     console.error(err);
   }
 }
 
-// ── generation ─────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+//  generation entry points
+// ═══════════════════════════════════════════════════════════════════════════
+function triggerGenerate() {
+  if (currentMode === 'face') {
+    startGeneration();
+  } else {
+    startGeneration(Math.floor(Math.random() * 10));
+  }
+}
+
+function stopGeneration() {
+  if (isRunning) stopFlag = true;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  main generation loop
+// ═══════════════════════════════════════════════════════════════════════════
 async function startGeneration(digit) {
+  const session  = sessions[currentMode];
+  const schedule = schedules[currentMode];
+  if (!session || !schedule) return;
+
   if (isRunning) {
     stopFlag = true;
     await sleep(60);
   }
 
-  isRunning   = true;
-  stopFlag    = false;
-  activeDigit = digit;
+  isRunning = true;
+  stopFlag  = false;
 
+  const cfg  = MODELS[currentMode];
+  const T    = cfg.T;
+  const W    = cfg.imgW;
+  const H    = cfg.imgH;
+  const C    = cfg.channels;
+  const size = C * W * H;
+
+  // UI bookkeeping
   setAllButtons(true);
-  setActiveDigit(digit);
   stopBtn.disabled = false;
 
-  canvasDigitEl.textContent = digit;
-  canvasDigitEl.classList.add('active');
+  if (cfg.hasLabel) {
+    // digit mode: highlight chosen button
+    const d = digit ?? Math.floor(Math.random() * 10);
+    digit = d;
+    setActiveDigit(d);
+    canvasDigitEl.textContent = d;
+    canvasDigitEl.classList.add('active');
+  } else {
+    canvasDigitEl.textContent = '?';
+    canvasDigitEl.classList.add('active');
+  }
   setCanvasStatus('Generating…', 'busy');
   updateProgress(0);
 
-  let x = randn(IMG_SIZE * IMG_SIZE);
+  // start from pure noise
+  let x = randn(size);
 
   for (let tIdx = T - 1; tIdx >= 0; tIdx--) {
     if (stopFlag) break;
 
+    // build tensors
     let tTensor, lTensor;
     try {
-      tTensor = new ort.Tensor('int64', BigInt64Array.from([BigInt(tIdx)]),  [1]);
-      lTensor = new ort.Tensor('int64', BigInt64Array.from([BigInt(digit)]), [1]);
+      tTensor = new ort.Tensor('int64', BigInt64Array.from([BigInt(tIdx)]), [1]);
+      if (cfg.hasLabel) lTensor = new ort.Tensor('int64', BigInt64Array.from([BigInt(digit)]), [1]);
     } catch(_) {
-      tTensor = new ort.Tensor('int32', Int32Array.from([tIdx]),  [1]);
-      lTensor = new ort.Tensor('int32', Int32Array.from([digit]), [1]);
+      tTensor = new ort.Tensor('int32', Int32Array.from([tIdx]), [1]);
+      if (cfg.hasLabel) lTensor = new ort.Tensor('int32', Int32Array.from([digit]), [1]);
     }
 
-    const xTensor = new ort.Tensor('float32', x.slice(), [1, 1, IMG_SIZE, IMG_SIZE]);
+    const xTensor = new ort.Tensor('float32', x.slice(), [1, C, H, W]);
 
     let result;
     try {
-      result = await session.run({ x: xTensor, t: tTensor, label: lTensor });
+      const feeds = cfg.hasLabel
+        ? { x: xTensor, t: tTensor, label: lTensor }
+        : { x: xTensor, t: tTensor };
+      result = await session.run(feeds);
     } catch (e) {
-      const t32 = new ort.Tensor('int32', Int32Array.from([tIdx]),  [1]);
-      const l32 = new ort.Tensor('int32', Int32Array.from([digit]), [1]);
-      result = await session.run({ x: xTensor, t: t32, label: l32 });
+      // fallback to int32 if int64 not supported
+      const t32 = new ort.Tensor('int32', Int32Array.from([tIdx]), [1]);
+      const feeds = cfg.hasLabel
+        ? { x: xTensor, t: t32, label: new ort.Tensor('int32', Int32Array.from([digit]), [1]) }
+        : { x: xTensor, t: t32 };
+      result = await session.run(feeds);
     }
 
-    const predNoise  = result['noise_pred'].data;
+    const predNoise = result['noise_pred'].data;
+
+    // DDPM reverse step
     const beta_t     = schedule.betas[tIdx];
     const alpha_t    = schedule.alphas[tIdx];
     const alpha_bar  = schedule.alphas_cumprod[tIdx];
     const inv_sqrt_a = 1 / Math.sqrt(alpha_t);
     const coeff      = beta_t / Math.sqrt(1 - alpha_bar);
 
-    const xNext = new Float32Array(x.length);
-    for (let i = 0; i < x.length; i++) {
+    const xNext = new Float32Array(size);
+    for (let i = 0; i < size; i++) {
       xNext[i] = inv_sqrt_a * (x[i] - coeff * predNoise[i]);
     }
     if (tIdx > 0) {
-      const z     = randn(x.length);
+      const z     = randn(size);
       const sigma = Math.sqrt(beta_t);
-      for (let i = 0; i < xNext.length; i++) xNext[i] += sigma * z[i];
+      for (let i = 0; i < size; i++) xNext[i] += sigma * z[i];
     }
     x = xNext;
 
+    // render update
     const step = T - tIdx;
-    if (step % SHOW_EVERY === 0 || tIdx === 0) {
-      renderImage(x);
-      updateProgress(step);
+    if (step % showEvery === 0 || tIdx === 0) {
+      renderImage(x, W, H, C);
+      updateProgress(step, T);
       stepBadge.textContent = `${step} / ${T}`;
       await sleep(0);
     }
   }
 
-  renderImage(x);
-  updateProgress(T);
+  renderImage(x, W, H, C);
+  updateProgress(T, T);
 
   if (stopFlag) {
-    stepBadge.textContent = 'stopped';
+    stepBadge.textContent  = 'stopped';
+    canvasDigitEl.textContent = '—';
+    canvasDigitEl.classList.remove('active');
     setCanvasStatus('Stopped', '');
   } else {
     stepBadge.textContent = 'done';
-    setCanvasStatus(`Done`, 'ready');
+    const label = cfg.hasLabel ? `Digit ${digit}` : 'Face';
+    setCanvasStatus(label + ' done', 'ready');
   }
 
   setAllButtons(false);
@@ -852,7 +1168,9 @@ async function startGeneration(digit) {
   isRunning = false;
 }
 
-// ── helpers ────────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
+//  helpers
+// ═══════════════════════════════════════════════════════════════════════════
 function randn(n) {
   const out = new Float32Array(n);
   for (let i = 0; i < n; i += 2) {
@@ -865,29 +1183,48 @@ function randn(n) {
   return out;
 }
 
-function renderImage(data) {
-  const imgData = ctx.createImageData(IMG_SIZE, IMG_SIZE);
-  for (let i = 0; i < IMG_SIZE * IMG_SIZE; i++) {
-    const v  = Math.max(-1, Math.min(1, data[i]));
-    const px = Math.round((v + 1) / 2 * 255);
-    imgData.data[i*4]   = px;
-    imgData.data[i*4+1] = px;
-    imgData.data[i*4+2] = px;
-    imgData.data[i*4+3] = 255;
+// Handles both 1-channel (grayscale) and 3-channel (RGB) tensors.
+// PyTorch layout: [C, H, W] — channel-first, so pixel (r,c) channel k is at [k*H*W + r*W + c].
+function renderImage(data, W, H, C) {
+  const imgData = ctx.createImageData(W, H);
+  if (C === 1) {
+    // grayscale — same value for R/G/B
+    for (let i = 0; i < W * H; i++) {
+      const v  = Math.max(-1, Math.min(1, data[i]));
+      const px = Math.round((v + 1) / 2 * 255);
+      imgData.data[i*4]   = px;
+      imgData.data[i*4+1] = px;
+      imgData.data[i*4+2] = px;
+      imgData.data[i*4+3] = 255;
+    }
+  } else {
+    // RGB — channels stored as [R_plane, G_plane, B_plane]
+    const planeSize = W * H;
+    for (let i = 0; i < planeSize; i++) {
+      const r = Math.round((Math.max(-1, Math.min(1, data[i]))               + 1) / 2 * 255);
+      const g = Math.round((Math.max(-1, Math.min(1, data[planeSize + i]))   + 1) / 2 * 255);
+      const b = Math.round((Math.max(-1, Math.min(1, data[2*planeSize + i])) + 1) / 2 * 255);
+      imgData.data[i*4]   = r;
+      imgData.data[i*4+1] = g;
+      imgData.data[i*4+2] = b;
+      imgData.data[i*4+3] = 255;
+    }
   }
   ctx.putImageData(imgData, 0, 0);
 }
 
-function updateProgress(step) {
-  const pct = Math.round((step / T) * 100);
+function updateProgress(step, T) {
+  const pct = T ? Math.round((step / T) * 100) : 0;
   progressFill.style.width = pct + '%';
-  progressStep.textContent = `${step} / ${T}`;
-  progressStep.classList.toggle('active', step > 0 && step < T);
+  progressStep.textContent = `${step} / ${T || 1000}`;
+  progressStep.classList.toggle('active', step > 0 && step < (T || 1000));
 }
 
 function setAllButtons(disabled) {
   document.querySelectorAll('.digit-btn').forEach(b => b.disabled = disabled);
-  randomBtn.disabled = disabled;
+  randomBtn.disabled   = disabled;
+  // also disable mode switcher while running
+  document.querySelectorAll('.mode-btn').forEach(b => b.disabled = disabled);
 }
 
 function setActiveDigit(d) {
@@ -898,6 +1235,9 @@ function setActiveDigit(d) {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// ═══════════════════════════════════════════════════════════════════════════
+//  boot
+// ═══════════════════════════════════════════════════════════════════════════
 init();
 </script>
 </body>
